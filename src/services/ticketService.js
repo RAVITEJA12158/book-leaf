@@ -23,4 +23,8 @@ async function classifyTicket(ticketId) {
     .run(result.category, result.priority, aiStatus, cur.co, result.category, cur.po, result.priority, now(), ticketId);
   events.publish('ticket.updated', { ticketId, authorId: t.author_id });
 }
-module.exports = { classifyTicket };
+// Classification runs in-process, so a restart can strand tickets in 'pending'. Re-run them at boot.
+async function sweepPending() {
+  for (const { id } of db.prepare("SELECT id FROM tickets WHERE ai_status = 'pending' ORDER BY id").all()) await classifyTicket(id);
+}
+module.exports = { classifyTicket, sweepPending };

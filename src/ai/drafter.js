@@ -27,7 +27,7 @@ async function draftResponse(ticket) {
   const user = `<account_context>\n${buildAccountContext(ticket)}\n</account_context>\n\n<conversation_so_far>\n${recentThread(ticket.id) || '(none)'}\n</conversation_so_far>\n\n` +
     `<ticket category="${ticket.category}" priority="${ticket.priority}">\nSubject: ${ticket.subject}\n${ticket.description.slice(0, 3000)}\n</ticket>\n\nWrite the reply now.`;
   try {
-    const { text } = await complete({ system, user, maxTokens: 450, temperature: 0.3 });
+    const { text } = await complete({ label: 'draft', system, user, maxTokens: 450, temperature: 0.3 });
     return { body: text, source: 'ai' };
   } catch (e) {
     if (!(e instanceof AIUnavailableError)) console.error('[drafter]', e);

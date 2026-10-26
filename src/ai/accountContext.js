@@ -23,7 +23,11 @@ function bookLine(b, now) {
     `last payout ${b.last_payout_date || 'NONE YET'}${neverPaid ? ' (never paid despite pending balance)' : ''}; printer ${b.print_partner}; listed on ${JSON.parse(b.available_on).join(', ') || 'nowhere'}.`;
 }
 
-function buildAccountContext(ticket, now = new Date()) {
+// AS_OF_DATE lets a demo pin "today" (the sample data's payouts end Dec 2025). Defaults to the real clock.
+const asOf = () => process.env.AS_OF_DATE ? new Date(`${process.env.AS_OF_DATE}T12:00:00Z`) : new Date();
+const MAX_PAYOUT_GAP_DAYS = 135;   // one quarter (~90d) + 45-day payout window
+
+function buildAccountContext(ticket, now = asOf()) {
   const author = db.prepare('SELECT name, joined_date FROM users WHERE author_id = ?').get(ticket.author_id);
   const all = db.prepare('SELECT * FROM books WHERE author_id = ?').all(ticket.author_id);
   const isRoyalty = ticket.category === 'Royalty & Payments';
@@ -34,6 +38,13 @@ function buildAccountContext(ticket, now = new Date()) {
   if (isRoyalty) {
     const pending = all.reduce((s, b) => s + b.royalty_pending, 0);
     const w = payoutWindow(now);
+    const paid = all.map(b => b.last_payout_date).filter(Boolean).sort().pop();
+    const firstPub = all.map(b => b.publication_date).filter(Boolean).sort()[0];
+    const ref = paid || firstPub;
+    const gap = ref ? Math.floor((now - new Date(ref)) / DAY) : null;
+    if (gap !== null && pending >= 1000 && gap > MAX_PAYOUT_GAP_DAYS)
+      lines.push(`Payout check: LIKELY OVERDUE. ${gap} days since ${paid ? 'the last payout' : 'first publication'} (${ref}) with money pending; policy allows about ${MAX_PAYOUT_GAP_DAYS} days. Own this and escalate with a 48-hour resolution timeline.`);
+    else if (gap !== null && pending >= 1000) lines.push(`Payout check: within policy (${gap} days since ${paid ? 'last payout' : 'first publication'}); explain the cycle and give the next payout date.`);
     lines.push(`Author-wide pending royalty: ${inr(pending)} (${pending >= 1000 ? 'meets' : 'BELOW'} the ₹1,000 payout threshold${pending < 1000 ? '; rolls over to next quarter' : ''}).`,
       `Payout calendar: last quarter ended ${w.lastQuarterEnd}, its payout due by ${w.lastPayoutDue}; next quarter ends ${w.nextQuarterEnd}, payout due by ${w.nextPayoutDue}.`,
       `Bank-account link status: UNKNOWN (not in data) - ask the author to confirm in their dashboard.`);
