@@ -1,0 +1,9 @@
+# Approach write-up
+
+**What I prioritised.** The core ticket loop and the AI layer, as the brief weights them. An author raises a ticket; it is saved instantly; AI classifies and scores priority in the background; an admin sees a ranked queue, opens a ticket, gets a KB-grounded draft, edits and sends; the author sees the reply live (SSE). Role isolation, validation and consistent errors are enforced server-side. I added `npm test` integration tests that run without an API key.
+
+**AI design.** Two calls with different cost profiles: a tiny JSON-only classifier (no KB), and an on-demand drafter that receives only the KB slice for the ticket's category, a compact account snapshot with precomputed facts (payout dates, threshold check, never-paid flags) and the last few messages. Computing facts in code and giving them to the model keeps numbers accurate instead of trusting the model with arithmetic. If the API fails, tickets still work: rule-based classification and a template draft, both labelled in the UI. Admin overrides always win, even against a late AI result.
+
+**Trade-offs.** SQLite and a no-build vanilla frontend instead of Postgres and React: faster to ship and easy to run, at the cost of scale and UI structure. SSE with refetch rather than patching state. Real file upload and email were skipped (UI-only per the brief). Auth is simple JWT/localStorage.
+
+**Evolving to production.** Postgres + a job queue (classification, drafting, email) with retries; Redis pub/sub for multi-instance real-time; S3 attachments; SSO for admins and httpOnly cookie sessions; SLA timers and auto-escalation for Critical tickets; deeper integration with royalty and production systems so drafts use live data; measure classification accuracy against admin overrides and track draft edit distance to tune prompts; PII redaction and per-ticket token/cost metrics.
