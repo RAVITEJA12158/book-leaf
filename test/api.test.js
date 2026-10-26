@@ -54,7 +54,30 @@ test('ticket lifecycle with AI disabled: created, fallback-classified, overridab
   assert.equal(authorView.messages.some(m => m.body === 'internal only' || /Category changed/.test(m.body)), false);
   assert.equal(authorView.messages.filter(m => m.sender_role === 'admin').length, 1);
 });
+test('hardening: 413 on huge body, pagination/search, stream auth, security headers', async () => {
+  const adm = await login('admin@bookleaf.com', 'Admin@123');
+  const big = await fetch(base + '/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'a@b.com', password: 'x'.repeat(200000) }) });
+  assert.equal(big.status, 413);
+  const page = (await call('GET', '/tickets?limit=1&from=2026-01-01', adm)).body;
+  assert.equal(page.tickets.length, 1); assert.ok(page.total >= 3);
+  assert.ok((await call('GET', '/tickets?q=ISBN', adm)).body.tickets.every(t => /isbn/i.test(t.subject + t.author_name)));
+  assert.equal((await call('GET', '/tickets?limit=9999', adm)).status, 400);
+  assert.equal((await fetch(base + '/events?ticket=nope')).status, 401);
+  assert.equal((await fetch(base + '/events?token=' + adm)).status, 401);            // JWT in URL no longer accepted
+  assert.ok((await call('POST', '/events/ticket', adm)).body.ticket);
+  assert.equal((await fetch(base + '/health')).headers.get('x-content-type-options'), 'nosniff');
+});
+test('draft is cleared after the admin sends it, and stale draft is not resurrected', async () => {
+  const adm = await login('admin@bookleaf.com', 'Admin@123');
+  await call('POST', '/tickets/2/draft', adm);
+  assert.ok((await call('GET', '/tickets/2', adm)).body.draft);
+  await call('POST', '/tickets/2/replies', adm, { body: 'Escalated to production.' });
+  assert.equal((await call('GET', '/tickets/2', adm)).body.draft, null);
+});
 test('heuristics and payout calendar', () => {
+  const h = heuristicClassify;
+  assert.equal(h({ subject: 'Royalty low', description: 'My royalty on Amazon seems too low, sold 200 copies' }).category, 'Royalty & Payments');
+  assert.equal(h({ subject: 'Bio', description: 'My book is 7 months old, can I update my bio?' }).priority, 'Low');
   assert.equal(heuristicClassify({ subject: 'ISBN mismatch', description: 'wrong isbn on amazon' }).category, 'ISBN & Metadata Issues');
   assert.equal(heuristicClassify({ subject: 'No royalty', description: "I haven't received any royalty for 6 months" }).priority, 'Critical');
   assert.equal(heuristicClassify({ subject: 'Bio', description: 'Can I update my author bio?' }).priority, 'Low');

@@ -1,0 +1,45 @@
+openapi: 3.0.3
+info: { title: BookLeaf Author Support Portal API, version: 1.1.0, description: "Served at /api/openapi.yaml. Errors are always { error: { code, message, details? } }." }
+servers: [{ url: /api }]
+components:
+  securitySchemes: { bearer: { type: http, scheme: bearer, bearerFormat: JWT } }
+  schemas:
+    Error: { type: object, properties: { error: { type: object, properties: { code: { type: string }, message: { type: string }, details: { type: array, items: { type: object } } } } } }
+    Category: { type: string, enum: [Royalty & Payments, ISBN & Metadata Issues, Printing & Quality, Distribution & Availability, Book Status & Production Updates, General Inquiry] }
+    Priority: { type: string, enum: [Critical, High, Medium, Low] }
+    Status: { type: string, enum: [Open, In Progress, Resolved, Closed] }
+    NewTicket: { type: object, required: [subject, description], properties: { book_id: { type: string, nullable: true }, subject: { type: string, minLength: 3, maxLength: 150 }, description: { type: string, minLength: 10, maxLength: 5000 }, attachment_name: { type: string, nullable: true } } }
+  responses:
+    Err: { description: Error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+security: [{ bearer: [] }]
+paths:
+  /auth/login: { post: { security: [], summary: Log in, requestBody: { content: { application/json: { schema: { type: object, required: [email, password], properties: { email: { type: string }, password: { type: string } } } } } }, responses: { '200': { description: "{ token, user }" }, '400': { $ref: '#/components/responses/Err' }, '401': { $ref: '#/components/responses/Err' }, '429': { $ref: '#/components/responses/Err' } } } }
+  /auth/me: { get: { summary: Current user, responses: { '200': { description: "{ user }" }, '401': { $ref: '#/components/responses/Err' } } } }
+  /books: { get: { summary: "Author - own books; admin - all (optional author_id)", parameters: [{ name: author_id, in: query, schema: { type: string } }], responses: { '200': { description: "{ books[] }" } } } }
+  /tickets:
+    get:
+      summary: "List tickets (authors: own only; admins: all). Admin default sort = unresolved first, then priority, then oldest."
+      parameters:
+        - { name: status, in: query, schema: { oneOf: [{ $ref: '#/components/schemas/Status' }, { type: string, enum: [active] }] } }
+        - { name: category, in: query, schema: { $ref: '#/components/schemas/Category' } }
+        - { name: priority, in: query, schema: { $ref: '#/components/schemas/Priority' } }
+        - { name: assigned, in: query, schema: { type: string, enum: [me, unassigned] } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: sort, in: query, schema: { type: string, enum: [urgency, newest, oldest] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0 } }
+      responses: { '200': { description: "{ tickets[], total, limit, offset }" }, '400': { $ref: '#/components/responses/Err' } }
+    post: { summary: "Create ticket (author only; 20/hour). Returns immediately; AI triage runs in the background.", requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/NewTicket' } } } }, responses: { '201': { description: "{ ticket }" }, '400': { $ref: '#/components/responses/Err' }, '403': { $ref: '#/components/responses/Err' }, '429': { $ref: '#/components/responses/Err' } } }
+  /tickets/{id}:
+    parameters: [{ name: id, in: path, required: true, schema: { type: integer } }]
+    get: { summary: "Ticket + thread. Admin also gets internal notes, AI fields, cached draft. Other authors' tickets return 404.", responses: { '200': { description: "{ ticket, messages[], draft? }" }, '404': { $ref: '#/components/responses/Err' } } }
+    patch: { summary: "Admin: update status/category/priority/assignee. Category/priority changes are recorded as overrides.", requestBody: { content: { application/json: { schema: { type: object, properties: { status: { $ref: '#/components/schemas/Status' }, category: { $ref: '#/components/schemas/Category' }, priority: { $ref: '#/components/schemas/Priority' }, assigned_to: { type: string, enum: [me], nullable: true } } } } } }, responses: { '200': { description: "{ ticket }" }, '403': { $ref: '#/components/responses/Err' } } }
+  /tickets/{id}/replies: { post: { summary: "Admin: visible response (optional status). Author: follow-up (reopens Resolved, 409 if Closed).", parameters: [{ name: id, in: path, required: true, schema: { type: integer } }], requestBody: { content: { application/json: { schema: { type: object, required: [body], properties: { body: { type: string, maxLength: 5000 }, status: { $ref: '#/components/schemas/Status' } } } } } }, responses: { '201': { description: ok }, '409': { $ref: '#/components/responses/Err' } } } }
+  /tickets/{id}/notes: { post: { summary: Admin internal note (never visible to author), parameters: [{ name: id, in: path, required: true, schema: { type: integer } }], requestBody: { content: { application/json: { schema: { type: object, required: [body], properties: { body: { type: string } } } } } }, responses: { '201': { description: ok } } } }
+  /tickets/{id}/draft: { post: { summary: "Admin: (re)generate AI draft; falls back to a template when AI is unavailable (ai_error set).", parameters: [{ name: id, in: path, required: true, schema: { type: integer } }], responses: { '200': { description: "{ draft: { body, source: ai|template }, ai_error }" }, '429': { $ref: '#/components/responses/Err' } } } }
+  /tickets/{id}/classify: { post: { summary: "Admin: re-run AI category/priority triage (respects existing overrides).", parameters: [{ name: id, in: path, required: true, schema: { type: integer } }], responses: { '200': { description: "{ ticket }" } } } }
+  /events/ticket: { post: { summary: Exchange JWT for a single-use 30s SSE ticket, responses: { '200': { description: "{ ticket }" } } } }
+  /events: { get: { security: [], summary: "SSE stream (events: ticket.created, ticket.updated). Authors only get their own tickets.", parameters: [{ name: ticket, in: query, required: true, schema: { type: string } }], responses: { '200': { description: text/event-stream }, '401': { $ref: '#/components/responses/Err' } } } }
+  /health: { get: { security: [], summary: Liveness, responses: { '200': { description: "{ ok, ai_configured }" } } } }

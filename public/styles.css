@@ -11,7 +11,7 @@ button:disabled{opacity:.5;cursor:wait}table{width:100%;border-collapse:collapse
 tr.row{cursor:pointer}tr.row:hover{background:#f0f4ef}tr.sel{background:#e7f0ea}tr.overdue td:first-child{border-left:4px solid #c0392b}
 .badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;background:#eee}
 .Critical{background:#c0392b;color:#fff}.High{background:#e67e22;color:#fff}.Medium{background:#f4d03f}.Low{background:#d5e8d4}
-.st-Open{background:#d6e4ff}.st-In\ Progress{background:#fff3cd}.st-Resolved{background:#d5e8d4}.st-Closed{background:#ddd}
+.st-open{background:#d6e4ff}.st-in-progress{background:#fff3cd}.st-resolved{background:#d5e8d4}.st-closed{background:#ddd}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}.kv{font-size:13px;color:var(--mut)}.kv b{display:block;color:var(--tx);font-size:15px}
 .filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px}.filters label{margin:0 0 2px;font-size:12px;color:var(--mut)}
 .msg{padding:10px;border-radius:8px;margin:8px 0;white-space:pre-wrap}.msg.admin{background:#e7f0ea}.msg.author{background:#eef1fb}.msg.note{background:#fff8dc;border:1px dashed #d4b800}

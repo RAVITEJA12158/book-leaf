@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { z } = require('zod');
+const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const events = require('../events');
 const { HttpError } = require('../errors');
@@ -12,6 +13,11 @@ router.use(requireAuth);
 const now = () => new Date().toISOString();
 const admin = requireRole('admin');
 const author = requireRole('author');
+// Per-user hourly caps protect AI spend: ticket creation triggers a classify call, drafts/re-runs trigger more.
+const perUser = (limit, message) => rateLimit({ windowMs: 3600e3, limit, standardHeaders: true, legacyHeaders: false,
+  keyGenerator: req => `u${req.user.id}`, message: { error: { code: 'RATE_LIMITED', message } } });
+const createLimiter = perUser(20, 'Too many tickets submitted. Please try again in an hour.');
+const aiLimiter = perUser(120, 'AI request limit reached. Please try again later.');
 
 const BASE = `SELECT t.*, u.name AS author_name, b.title AS book_title, a.name AS assignee_name
   FROM tickets t JOIN users u ON u.author_id = t.author_id
@@ -37,6 +43,8 @@ const listQuery = z.object({
   status: z.enum([...STATUSES, 'active']).optional(), category: z.enum(CATEGORIES).optional(), priority: z.enum(PRIORITIES).optional(),
   assigned: z.enum(['me', 'unassigned']).optional(), from: z.string().date().optional(), to: z.string().date().optional(),
   sort: z.enum(['urgency', 'newest', 'oldest']).default('urgency'),
+  q: z.string().trim().max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50), offset: z.coerce.number().int().min(0).default(0),
 });
 const PRI_RANK = `CASE t.priority WHEN 'Critical' THEN 0 WHEN 'High' THEN 1 WHEN 'Medium' THEN 2 ELSE 3 END`;
 const SORTS = {
@@ -55,9 +63,12 @@ router.get('/', (req, res) => {
   if (q.assigned === 'unassigned') where.push('t.assigned_to IS NULL');
   if (q.from) { where.push('t.created_at >= ?'); p.push(q.from); }
   if (q.to) { where.push('t.created_at <= ?'); p.push(`${q.to}T23:59:59.999Z`); }
+  if (q.q) { where.push('(t.subject LIKE ? OR u.name LIKE ? OR CAST(t.id AS TEXT) = ?)'); p.push(`%${q.q}%`, `%${q.q}%`, q.q); }
+  const w = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = db.prepare(`SELECT COUNT(*) c FROM tickets t JOIN users u ON u.author_id = t.author_id ${w}`).get(...p).c;
   const order = req.user.role === 'author' ? 't.created_at DESC' : SORTS[q.sort];
-  const rows = db.prepare(`${BASE} ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${order}`).all(...p);
-  res.json({ tickets: req.user.role === 'author' ? rows.map(authorView) : rows });
+  const rows = db.prepare(`${BASE} ${w} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...p, q.limit, q.offset);
+  res.json({ tickets: req.user.role === 'author' ? rows.map(authorView) : rows, total, limit: q.limit, offset: q.offset });
 });
 
 // ---- Create (authors) ----
@@ -65,7 +76,7 @@ const createSchema = z.object({
   book_id: z.string().nullish(), subject: z.string().trim().min(3).max(150),
   description: z.string().trim().min(10).max(5000), attachment_name: z.string().max(255).nullish(),
 });
-router.post('/', author, (req, res) => {
+router.post('/', author, createLimiter, (req, res) => {
   const b = createSchema.parse(req.body);
   if (b.book_id && !db.prepare('SELECT 1 FROM books WHERE book_id = ? AND author_id = ?').get(b.book_id, req.user.author_id))
     throw new HttpError(400, 'INVALID_BOOK', 'That book is not on your account');
@@ -101,6 +112,7 @@ router.post('/:id/replies', (req, res) => {
     addMessage(t.id, req.user, body);
     const next = status || (t.status === 'Open' ? 'In Progress' : t.status);
     db.prepare(`UPDATE tickets SET status=?, assigned_to=COALESCE(assigned_to, ?), updated_at=? WHERE id=?`).run(next, req.user.id, now(), t.id);
+    db.prepare('DELETE FROM drafts WHERE ticket_id = ?').run(t.id);   // sent: the cached draft is now stale
   }
   touch(t.id, t.author_id);
   res.status(201).json({ ok: true });
@@ -136,7 +148,11 @@ router.patch('/:id', admin, (req, res) => {
   res.json({ ticket: loadTicket(req) });
 });
 
-router.post('/:id/draft', admin, async (req, res) => {
+router.post('/:id/classify', admin, aiLimiter, async (req, res) => {     // re-run AI triage (e.g. after an outage)
+  const t = loadTicket(req); await classifyTicket(t.id); res.json({ ticket: loadTicket(req) });
+});
+
+router.post('/:id/draft', admin, aiLimiter, async (req, res) => {
   const t = loadTicket(req);
   const d = await draftResponse(t);      // never throws on AI failure; falls back to a template
   db.prepare(`INSERT INTO drafts (ticket_id, body, source, created_at) VALUES (?,?,?,?)
