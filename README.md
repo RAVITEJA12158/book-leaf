@@ -1,6 +1,7 @@
 # BookLeaf Author Support & Communication Portal
 
 Two portals (author + admin) on one Node/Express service, with AI-assisted ticket triage and response drafting.
+**Live demo:** https://bookleaf-portal-4zzq.onrender.com
 **Confidential assignment: keep the repo private.**
 
 ## Quick start
@@ -22,15 +23,15 @@ Requires Node 22+. The app runs **without** an API key: tickets are still create
 Useful edge cases: **Kavita** (book in production + ₹850 pending, below the ₹1,000 threshold), **Sneha** (3 books, one in cover design), **Arjun / Ananya / Diya** (pending royalty, never paid). 3 demo tickets are pre-seeded.
 
 ### Deploy on Render
-This SQLite version is configured for a single Render web service with a persistent disk. The Blueprint in `render.yaml` sets `DB_PATH=/var/data/bookleaf.db`, generates `JWT_SECRET`, and prompts for `GEMINI_API_KEY`, `ADMIN_PASSWORD`, and `AUTHOR_PASSWORD`. It also sets `GEMINI_MODEL=gemini-3.5-flash-lite`.
+This SQLite version is configured for a single Render web service. The free Blueprint in `render.yaml` has no persistent disk, so the database is stored on Render's temporary filesystem and can be lost when the service restarts, spins down, or redeploys. The Blueprint generates `JWT_SECRET` and prompts for `GEMINI_API_KEY`, `ADMIN_PASSWORD`, and `AUTHOR_PASSWORD`. It also sets `GEMINI_MODEL=gemini-3.5-flash-lite`.
 
 1. Push this repository to GitHub.
-2. In Render, create a **Blueprint** and select the repository. Render reads `render.yaml` and proposes the web service and its 1 GB persistent disk.
+2. In Render, create a **Blueprint** and select the repository. Render reads `render.yaml` and proposes the free web service.
 3. Enter your Gemini API key and choose strong `ADMIN_PASSWORD` and `AUTHOR_PASSWORD` values when Render prompts for them. Set these before the first deploy because the seed runs only when the database is empty.
 4. Deploy. On first start, the service creates the SQLite schema and seeds the sample accounts and books.
-5. Open the service URL and sign in using the seeded email addresses from Quick start and the passwords you set in step 3. Share the demo login details with your reviewer separately; they are no longer displayed on the login page.
+5. Open the service URL and sign in using the seeded email addresses and passwords in the Test logins table above.
 
-**Cost and storage:** Render requires a paid web-service plan for a persistent disk. The service is intentionally single-instance because SQLite and the in-memory SSE event hub are local to that instance. The disk preserves the database across deploys and restarts; do not remove or replace it if you need to keep submitted tickets. For a no-cost temporary demo, use an ephemeral service only with the understanding that its SQLite data can be lost on restart or redeploy.
+**Cost and storage:** The free service has an ephemeral filesystem, so its SQLite data can be lost on restart, spin-down, or redeploy. The service is intentionally single-instance because SQLite and the in-memory SSE event hub are local to that instance. The previous paid configuration is saved in `render.paid.yaml`; use that Blueprint file if you need a persistent disk and are willing to use a paid service.
 
 ## Architecture
 ```
