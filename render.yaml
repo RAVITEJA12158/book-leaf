@@ -2,18 +2,12 @@ services:
   - type: web
     name: bookleaf-portal
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: npm ci
     startCommand: npm start
-    disk:
-      name: bookleaf-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DB_PATH
-        value: /var/data/bookleaf.db
       - key: JWT_SECRET
         generateValue: true
       - key: GEMINI_API_KEY
