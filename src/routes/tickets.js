@@ -41,7 +41,7 @@ const touch = (id, authorId, extra = {}) => events.publish('ticket.updated', { t
 // ---- List ----
 const listQuery = z.object({
   status: z.enum([...STATUSES, 'active']).optional(), category: z.enum(CATEGORIES).optional(), priority: z.enum(PRIORITIES).optional(),
-  assigned: z.enum(['me', 'unassigned']).optional(), from: z.string().date().optional(), to: z.string().date().optional(),
+  assigned: z.enum(['me', 'unassigned']).optional(), from: z.iso.date().optional(), to: z.iso.date().optional(),
   sort: z.enum(['urgency', 'newest', 'oldest']).default('urgency'),
   q: z.string().trim().max(100).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50), offset: z.coerce.number().int().min(0).default(0),

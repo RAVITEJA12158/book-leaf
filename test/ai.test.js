@@ -1,7 +1,8 @@
-// AI-path tests with a mocked Anthropic API (no network, no key needed). Proves prompt scoping, retries,
+// AI-path tests with a mocked Gemini API (no network, no key needed). Proves prompt scoping, retries,
 // circuit breaker, invalid-output handling and that admin overrides win over a late AI result.
 process.env.DB_PATH = require('path').join(require('os').tmpdir(), `bl-ai-${Date.now()}.db`);
-process.env.ANTHROPIC_API_KEY = 'sk-test-key'; process.env.AS_OF_DATE = '2026-10-26'; process.env.AI_RETRY_BASE_MS = '5';
+process.env.NODE_ENV = 'test';
+process.env.GEMINI_API_KEY = 'test-gemini-key'; process.env.AS_OF_DATE = '2026-10-26'; process.env.AI_RETRY_BASE_MS = '5';
 const test = require('node:test');
 const assert = require('node:assert');
 const db = require('../src/db');
@@ -11,11 +12,11 @@ const { classify } = require('../src/ai/classifier');
 const { draftResponse } = require('../src/ai/drafter');
 const app = require('../src/server');
 
-const ok = text => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => ({ content: [{ type: 'text', text }], usage: { input_tokens: 100, output_tokens: 20 } }) });
+const ok = text => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => ({ candidates: [{ content: { parts: [{ text }] } }], usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 20 } }) });
 const fail = status => ({ ok: false, status, headers: { get: () => null }, json: async () => ({}) });
 let handler = () => ok('{}'), calls = [];
 const realFetch = global.fetch;
-global.fetch = (url, opts) => String(url).includes('api.anthropic.com') ? (calls.push(JSON.parse(opts.body)), calls.at(-1).headers = opts.headers, Promise.resolve(handler(opts))) : realFetch(url, opts);
+global.fetch = (url, opts) => String(url).includes('generativelanguage.googleapis.com') ? (calls.push(JSON.parse(opts.body)), calls.at(-1).url = String(url), calls.at(-1).headers = opts.headers, Promise.resolve(handler(opts))) : realFetch(url, opts);
 test.beforeEach(() => { calls = []; client.resetBreaker(); });
 
 const mkTicket = (author, book, category, subject, description) => {
@@ -37,25 +38,26 @@ test('draft prompt is scoped: only the matching KB section, key only in header, 
   const d = await draftResponse(t);
   assert.equal(d.source, 'ai');
   const body = calls[0];
-  assert.match(body.system, /ROYALTY POLICY/); assert.doesNotMatch(body.system, /ISBN POLICY|PRINTING & QUALITY/);
-  assert.match(body.messages[0].content, /BELOW the ₹1,000/); assert.match(body.messages[0].content, /not been paid/);
-  assert.equal(body.headers['x-api-key'], 'sk-test-key'); assert.doesNotMatch(JSON.stringify(body.messages), /sk-test-key/);
-  assert.ok(body.max_tokens <= 450);
+  assert.match(body.url, /models\/gemini-3\.5-flash-lite:generateContent$/);
+  assert.match(body.systemInstruction.parts[0].text, /ROYALTY POLICY/); assert.doesNotMatch(body.systemInstruction.parts[0].text, /ISBN POLICY|PRINTING & QUALITY/);
+  assert.match(body.contents[0].parts[0].text, /BELOW the ₹1,000/); assert.match(body.contents[0].parts[0].text, /not been paid/);
+  assert.equal(body.headers['x-goog-api-key'], 'test-gemini-key'); assert.doesNotMatch(JSON.stringify(body.contents), /test-gemini-key/);
+  assert.ok(body.generationConfig.maxOutputTokens <= 450);
 });
 
 test('royalty context computes an overdue verdict from data, not from the model', async () => {
   handler = () => ok('draft');
   await draftResponse(mkTicket('AUTH006', 'BK010', 'Royalty & Payments', 'No royalty', 'Never paid'));   // Arjun: 88 copies, never paid
-  assert.match(calls[0].messages[0].content, /LIKELY OVERDUE/);
+  assert.match(calls[0].contents[0].parts[0].text, /LIKELY OVERDUE/);
   calls = [];
   await draftResponse(mkTicket('AUTH009', null, 'Royalty & Payments', 'Royalty', 'Status?'));            // Kavita: ₹850 pending
-  assert.doesNotMatch(calls[0].messages[0].content, /LIKELY OVERDUE/);
+  assert.doesNotMatch(calls[0].contents[0].parts[0].text, /LIKELY OVERDUE/);
 });
 
 test('in-production book is described as unpublished (no invented royalties)', async () => {
   handler = () => ok('draft');
   await draftResponse(mkTicket('AUTH009', 'BK015', 'Book Status & Production Updates', 'Typesetting delay', 'Still in typesetting after 3 weeks'));
-  assert.match(calls[0].messages[0].content, /NOT PUBLISHED YET[\s\S]*Typesetting/);
+  assert.match(calls[0].contents[0].parts[0].text, /NOT PUBLISHED YET[\s\S]*Typesetting/);
 });
 
 test('retries once on 429 then succeeds', async () => {

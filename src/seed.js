@@ -1,11 +1,11 @@
-require('dotenv').config();
+if (process.env.NODE_ENV !== 'test') require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
 
-const AUTHOR_PASSWORD = 'Author@123';
-const ADMIN = { email: 'admin@bookleaf.com', password: 'Admin@123', name: 'BookLeaf Support' };
+const AUTHOR_PASSWORD = process.env.AUTHOR_PASSWORD || 'Author@123';
+const ADMIN = { email: 'admin@bookleaf.com', password: process.env.ADMIN_PASSWORD || 'Admin@123', name: 'BookLeaf Support' };
 const now = () => new Date().toISOString();
 
 function seed({ reset = false } = {}) {

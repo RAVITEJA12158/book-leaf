@@ -21,4 +21,4 @@ Scored against the brief's rubric. "Found" = reproduced or confirmed by reading 
 Circuit breaker for AI outages · per-call token logging · per-user rate limits (AI cost control) · computed `LIKELY OVERDUE` verdict in the draft context · pagination + search on the queue · security headers/CSP · OpenAPI spec · 10 new tests incl. mocked AI, retry, breaker, override race · incremental git history.
 
 ## Still open (honest list)
-Not run against the live Anthropic API or in a browser · no deployment · attachments UI-only · single-instance (SQLite, in-memory SSE) · draft edits not persisted server-side · no prompt caching · classification accuracy not measured on a labelled set.
+Not run against the live Gemini API or in a browser · no deployment · attachments UI-only · single-instance (SQLite, in-memory SSE) · draft edits not persisted server-side · no prompt caching · classification accuracy not measured on a labelled set.

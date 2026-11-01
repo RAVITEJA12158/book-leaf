@@ -6,12 +6,12 @@ Two portals (author + admin) on one Node/Express service, with AI-assisted ticke
 ## Quick start
 ```bash
 npm install
-cp .env.example .env        # set JWT_SECRET and ANTHROPIC_API_KEY
+cp .env.example .env        # set JWT_SECRET and GEMINI_API_KEY
 npm start                   # http://localhost:3000, auto-seeds on first run
 npm test                    # 14 tests: API + mocked-AI paths (no key or network needed)
 npm run seed                # wipe and re-seed the DB
 ```
-Requires Node 18+. The app runs **without** an API key: tickets are still created, classified by rules, and admins get a template to edit.
+Requires Node 22+. The app runs **without** an API key: tickets are still created, classified by rules, and admins get a template to edit.
 
 ### Test logins (seeded from `bookleaf_sample_data.json`)
 | Role | Email | Password |
@@ -21,8 +21,16 @@ Requires Node 18+. The app runs **without** an API key: tickets are still create
 
 Useful edge cases: **Kavita** (book in production + ₹850 pending, below the ₹1,000 threshold), **Sneha** (3 books, one in cover design), **Arjun / Ananya / Diya** (pending royalty, never paid). 3 demo tickets are pre-seeded.
 
-### Deploy (Render / Railway / VPS)
-Build `npm install`, start `npm start`. Set `JWT_SECRET`, `ANTHROPIC_API_KEY`, `NODE_ENV=production`. SQLite lives in `data/`; mount a persistent disk there (or set `DB_PATH`). The server seeds itself when the DB is empty.
+### Deploy on Render
+This SQLite version is configured for a single Render web service with a persistent disk. The Blueprint in `render.yaml` sets `DB_PATH=/var/data/bookleaf.db`, generates `JWT_SECRET`, and prompts for `GEMINI_API_KEY`, `ADMIN_PASSWORD`, and `AUTHOR_PASSWORD`. It also sets `GEMINI_MODEL=gemini-3.5-flash-lite`.
+
+1. Push this repository to GitHub.
+2. In Render, create a **Blueprint** and select the repository. Render reads `render.yaml` and proposes the web service and its 1 GB persistent disk.
+3. Enter your Gemini API key and choose strong `ADMIN_PASSWORD` and `AUTHOR_PASSWORD` values when Render prompts for them. Set these before the first deploy because the seed runs only when the database is empty.
+4. Deploy. On first start, the service creates the SQLite schema and seeds the sample accounts and books.
+5. Open the service URL and sign in using the seeded email addresses from Quick start and the passwords you set in step 3. Share the demo login details with your reviewer separately; they are no longer displayed on the login page.
+
+**Cost and storage:** Render requires a paid web-service plan for a persistent disk. The service is intentionally single-instance because SQLite and the in-memory SSE event hub are local to that instance. The disk preserves the database across deploys and restarts; do not remove or replace it if you need to keep submitted tickets. For a no-cost temporary demo, use an ephemeral service only with the understanding that its SQLite data can be lost on restart or redeploy.
 
 ## Architecture
 ```
@@ -42,7 +50,7 @@ Decisions:
 - **Auth/hardening**: bcrypt (async, with a dummy compare so login timing doesn't reveal valid emails), 12h JWT, login rate limit, security headers + CSP, 100kb body limit (413). Authors requesting another author's ticket get **404**, not 403, so IDs don't leak.
 
 ## AI integration
-**Model: Claude Haiku (`claude-haiku-5-5`, configurable via `AI_MODEL`).** Cheap and fast enough for short classification and ~150-word drafts, follows tone instructions well, and keeps latency low for an admin who is waiting. Keys are read from `process.env` on the server only; nothing AI-related is sent to the browser.
+**Model: Gemini Flash-Lite (`gemini-3.5-flash-lite`, configurable via `GEMINI_MODEL`).** Fast enough for short classification and response drafts. The server calls Google's Gemini `generateContent` REST API; the API key is read from `process.env` on the server only and is never sent to the browser.
 
 **Flow**
 1. Author submits → ticket saved and returned immediately (`Open`, default Medium) → classification runs in the background → SSE updates the admin queue.
@@ -50,14 +58,14 @@ Decisions:
 3. Overrides: changing category/priority sets `*_overridden`, keeps the AI value for comparison, and logs an internal note. A late-arriving AI result never overwrites an admin override.
 
 **Prompt strategy**
-- *Classifier*: tiny static system prompt (category definitions + priority rubric), JSON-only output, `temperature 0`, `max_tokens 80`, output validated against the enums. No KB, no history.
+- *Classifier*: tiny static system prompt (category definitions + priority rubric), JSON-only output, `temperature 0`, `maxOutputTokens 80`, output validated against the enums. No KB, no history.
 - *Drafter*: persona and tone rules from the BookLeaf guidelines (empathy first, own mistakes, specific numbers, timeline, clear next step, under 180 words) + **only the KB sections for the ticket's category** + the category's playbook from the sample responses + a compact **account snapshot** (the referenced book only; all books for royalty tickets) + the last 4 public messages (500 chars each).
 - *Grounding*: the snapshot includes computed facts (including an explicit `LIKELY OVERDUE` verdict when ≥₹1,000 is pending and more than ~135 days have passed since the last payout/first publication; the model does no date arithmetic): months since publication, never-paid flags, the ₹1,000 threshold check, and the next payout due date from the quarterly + 45-day rule. Unknowns (e.g. bank-link status) are labelled UNKNOWN so the model asks rather than invents. Books in production are described as unpublished with no royalties.
 - *Safety*: ticket text is wrapped in tags and declared untrusted data; a human always reviews before sending.
 
 **Error handling / graceful degradation**: 15s timeout, one retry on 429/5xx (honouring `retry-after`), no retry on 4xx, and a **circuit breaker** (3 consecutive failed calls → AI skipped for 60s, so an outage does not add latency to every ticket). Tickets stranded in `pending` by a restart are re-classified at boot; admins can also click **Re-run AI** (`POST /tickets/:id/classify`). On failure, classification falls back to keyword rules (`ai_status = fallback`, shown in the UI) and drafting falls back to a category template with a visible warning. Ticket creation never depends on AI.
 
-**Cost awareness**: the classifier sends no KB or history; the drafter sends only the KB slice for the ticket's category, a compact account snapshot and the last 4 public messages (never the full history or full KB). Drafts are generated once per ticket on open (active tickets only), cached, and cleared on send/category change. `max_tokens` is capped (80 / 450). Per-user hourly rate limits cap spend (20 tickets, 120 AI actions). Every call logs `[ai] op= in= out=` token counts so real cost can be measured from logs (I have not measured live numbers here). Not implemented: prompt caching (the static prefix is likely below the minimum cacheable size).
+**Cost awareness**: the classifier sends no KB or history; the drafter sends only the KB slice for the ticket's category, a compact account snapshot and the last 4 public messages (never the full history or full KB). Drafts are generated once per ticket on open (active tickets only), cached, and cleared on send/category change. Gemini `maxOutputTokens` is capped (80 / 450). Per-user hourly rate limits cap spend (20 tickets, 120 AI actions). Every call logs `[ai] op= in= out=` token counts so real cost can be measured from logs (I have not measured live numbers here). Not implemented: prompt caching (the static prefix is likely below the minimum cacheable size).
 
 ## API
 All routes are under `/api`. Auth: `Authorization: Bearer <token>`. Errors: `{ "error": { "code", "message", "details?" } }` with 400 validation, 401, 403, 404, 409, 429, never a raw 500 stack.

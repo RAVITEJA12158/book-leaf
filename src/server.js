@@ -1,4 +1,4 @@
-require('dotenv').config();
+if (process.env.NODE_ENV !== 'test') require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const { seed } = require('./seed');
@@ -13,7 +13,7 @@ app.use((req, res, next) => {
 });
 app.use(express.json({ limit: '100kb' }));
 
-app.get('/api/health', (req, res) => res.json({ ok: true, ai_configured: Boolean(process.env.ANTHROPIC_API_KEY) }));
+app.get('/api/health', (req, res) => res.json({ ok: true, ai_configured: Boolean(process.env.GEMINI_API_KEY) }));
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/books', require('./routes/books'));
 app.use('/api/tickets', require('./routes/tickets'));
@@ -27,6 +27,6 @@ if (require.main === module) {
   if (seed()) console.log('Database seeded from data/bookleaf_sample_data.json');
   require('./services/ticketService').sweepPending().catch(e => console.error('[sweep]', e));
   const port = process.env.PORT || 3000;
-  app.listen(port, () => console.log(`BookLeaf portal on http://localhost:${port} (AI ${process.env.ANTHROPIC_API_KEY ? 'enabled' : 'DISABLED: fallbacks only'})`));
+  app.listen(port, () => console.log(`BookLeaf portal on http://localhost:${port} (AI ${process.env.GEMINI_API_KEY ? 'enabled' : 'DISABLED: fallbacks only'})`));
 }
 module.exports = app;

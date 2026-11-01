@@ -1,6 +1,8 @@
 // Integration tests: run with `npm test`. Uses a temp DB and no AI key, so it also proves graceful degradation.
 process.env.DB_PATH = require('path').join(require('os').tmpdir(), `bl-test-${Date.now()}.db`);
-delete process.env.ANTHROPIC_API_KEY;
+process.env.NODE_ENV = 'test';
+// Keep API tests offline even when the developer has a local Gemini key in .env.
+process.env.GEMINI_API_KEY = '';
 const test = require('node:test');
 const assert = require('node:assert');
 const { seed } = require('../src/seed');
@@ -40,8 +42,11 @@ test('ticket lifecycle with AI disabled: created, fallback-classified, overridab
   const c = await call('POST', '/tickets', kav, { book_id: 'BK016', subject: 'Blurry images', description: 'My author copies arrived and the print quality is terrible, pages are misaligned.' });
   assert.equal(c.status, 201);
   const id = c.body.ticket.id;
-  await new Promise(r => setTimeout(r, 300));                                 // background classification
   let t = (await call('GET', `/tickets/${id}`, adm)).body;
+  for (let attempt = 0; attempt < 100 && t.ticket.ai_status === 'pending'; attempt++) {
+    await new Promise(r => setTimeout(r, 50));
+    t = (await call('GET', `/tickets/${id}`, adm)).body;                       // wait for async classification, up to 5s
+  }
   assert.equal(t.ticket.category, 'Printing & Quality'); assert.equal(t.ticket.ai_status, 'fallback');
   const p = await call('PATCH', `/tickets/${id}`, adm, { category: 'General Inquiry', priority: 'Low', assigned_to: 'me' });
   assert.equal(p.body.ticket.category_overridden, 1); assert.equal(p.body.ticket.assignee_name, 'BookLeaf Support');

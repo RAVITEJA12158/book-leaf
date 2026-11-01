@@ -1,3 +1,28 @@
-node_modules
+# Dependencies
+node_modules/
+
+# Local secrets and environment settings
 .env
+.env.*
+!.env.example
+
+# Local SQLite database and sidecar files (keep the sample JSON data tracked)
 data/*.db*
+
+# Logs and test output
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+coverage/
+
+# Generated output and temporary files
+dist/
+build/
+.cache/
+tmp/
+temp/
+
+# OS files
+.DS_Store
+Thumbs.db

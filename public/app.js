@@ -27,6 +27,7 @@ async function api(path, o = {}) {
   return data;
 }
 function logout() { localStorage.removeItem('bl_token'); token = me = null; es?.close(); boot(); }
+function setTheme(theme) { document.body.dataset.theme = theme; }
 
 // ---------- Real-time: SSE with a slow polling safety net ----------
 async function connect() {
@@ -42,17 +43,21 @@ setInterval(() => token && me && views[view]?.onEvent?.(null), 30000);
 // ---------- Shell ----------
 function nav() {
   const tabs = me.role === 'admin' ? [['queue', 'Ticket Queue']] : [['books', 'My Books'], ['new', 'Submit Query'], ['tickets', 'My Tickets']];
-  $('#nav').innerHTML = `<b>BookLeaf Support</b>${tabs.map(([k, l]) => `<a href="#" data-v="${k}" class="${k === view ? 'on' : ''}">${l}</a>`).join('')}<span>${esc(me.name)} (${me.role})</span><button id="out">Log out</button>`;
+  $('#nav').innerHTML = `<div class="brand-lockup"><span class="brand-mark" aria-hidden="true">B</span><span class="brand-copy"><strong>BookLeaf</strong><small>AUTHOR CARE</small></span></div>
+    <nav class="primary-nav" aria-label="Main navigation">${tabs.map(([k, l]) => `<a href="#" data-v="${k}" class="${k === view ? 'on' : ''}" ${k === view ? 'aria-current="page"' : ''}>${l}</a>`).join('')}</nav>
+    <span class="user-label">${esc(me.name)} <span class="role-label">${me.role}</span></span><button id="out">Log out</button>`;
   $('#nav').querySelectorAll('a').forEach(a => a.onclick = e => { e.preventDefault(); go(a.dataset.v); });
   $('#out').onclick = logout;
 }
-function go(v) { view = v; nav(); views[v].render(); }
+function go(v) { view = v; setTheme(me?.role === 'admin' ? 'admin' : 'author'); nav(); views[v].render(); }
 async function boot() {
-  if (token) { try { me = (await api('/auth/me')).user; connect(); nav(); return go(me.role === 'admin' ? 'queue' : 'books'); } catch { } }
-  $('#nav').innerHTML = '<b>BookLeaf Support</b>';
-  $('#app').innerHTML = `<div class="card" style="max-width:380px;margin:40px auto"><h2>Log in</h2><form id="lf">
-    <label>Email</label><input name="email" type="email" required><label>Password</label><input name="password" type="password" required>
-    <button class="p">Log in</button></form><p class="hint">Demo: admin@bookleaf.com / Admin@123, or priya.sharma@email.com / Author@123</p></div>`;
+  if (token) { try { me = (await api('/auth/me')).user; setTheme(me.role === 'admin' ? 'admin' : 'author'); connect(); nav(); return go(me.role === 'admin' ? 'queue' : 'books'); } catch { } }
+  setTheme('login');
+  $('#nav').innerHTML = '<div class="brand-lockup"><span class="brand-mark" aria-hidden="true">B</span><span class="brand-copy"><strong>BookLeaf</strong><small>AUTHOR CARE</small></span></div>';
+  $('#app').innerHTML = `<div class="auth-layout"><section class="auth-story"><div><span class="eyebrow">A publishing partner, always</span><h1>Your story matters. So does every question.</h1><p>Get thoughtful, personal support for your books, royalties, and publishing journey.</p></div><div class="auth-quote">“Every book begins with a voice worth hearing.”</div></section>
+    <section class="auth-form"><span class="eyebrow">Welcome back</span><h2>Sign in to BookLeaf</h2><p class="hint">Continue to your author support space.</p><form id="lf">
+    <label for="login-email">Email address</label><input id="login-email" name="email" type="email" autocomplete="username" placeholder="you@example.com" required><label for="login-password">Password</label><input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+    <button class="p">Sign in</button></form><div class="auth-demo">Use the demo credentials supplied with this deployment.</div></section></div>`;
   $('#lf').onsubmit = async e => { e.preventDefault(); const f = Object.fromEntries(new FormData(e.target));
     try { const r = await api('/auth/login', { method: 'POST', body: f }); token = r.token; localStorage.setItem('bl_token', token); boot(); } catch (err) { toast(err.message); } };
 }
@@ -65,9 +70,9 @@ const views = {
   books: { async render() {
     $('#app').innerHTML = '<p class="empty">Loading…</p>';
     const { books } = await api('/books');
-    $('#app').innerHTML = '<h2>My Books</h2>' + (books.length ? books.map(b => {
+    $('#app').innerHTML = '<div class="page-heading"><div><span class="eyebrow">Your publishing journey</span><h1>My Books</h1><p>All your titles, production progress, and royalty details in one place.</p></div></div>' + (books.length ? books.map(b => {
       const live = !!b.publication_date;
-      return `<div class="card"><h3>${esc(b.title)} ${badge(b.status, 'st-open')}</h3><div class="grid">
+      return `<div class="card book-card"><h3>${esc(b.title)} ${badge(b.status, 'st-open')}</h3><div class="grid">
         <div class="kv">ISBN<b>${esc(b.isbn)}</b></div><div class="kv">Genre<b>${esc(b.genre)}</b></div><div class="kv">Published<b>${b.publication_date || '—'}</b></div><div class="kv">MRP<b>${inr(b.mrp)}</b></div>
         ${live ? `<div class="kv">Copies sold<b>${b.copies_sold}</b></div><div class="kv">Royalty earned<b>${inr(b.royalty_earned)}</b></div><div class="kv">Royalty paid<b>${inr(b.royalty_paid)}</b></div><div class="kv">Royalty pending<b>${inr(b.royalty_pending)}</b></div>` : ''}</div>
         ${live ? `<p class="hint">Last payout: ${b.last_payout_date || 'none yet'} · Available on: ${esc(b.available_on.join(', ') || '—')}</p>` : '<p class="hint">This book is still in production. Sales and royalty details will appear once it is published.</p>'}</div>`;
@@ -76,7 +81,7 @@ const views = {
   // ===== Author: new ticket =====
   new: { async render() {
     const { books } = await api('/books');
-    $('#app').innerHTML = `<div class="card"><h2>Submit a Support Query</h2><form id="tf"><label>Which book is this about?</label>
+    $('#app').innerHTML = `<div class="page-heading"><div><span class="eyebrow">We’re here to help</span><h1>Start a conversation</h1><p>Tell us what you need. Our publishing support team will take it from here.</p></div></div><div class="card"><h2>How can we support you?</h2><form id="tf"><label>Which book is this about?</label>
       <select name="book_id"><option value="">General / Account Level</option>${books.map(b => `<option value="${b.book_id}">${esc(b.title)}</option>`).join('')}</select>
       <label>Subject</label><input name="subject" required minlength="3" maxlength="150"><label>Description</label><textarea name="description" required minlength="10" maxlength="5000" placeholder="Tell us what happened, with any dates, amounts or screenshots' details."></textarea>
       <p class="hint">We aim to respond within 48 hours. Critical issues are reviewed first.</p><label>Attachment (optional)</label><input type="file" name="file"><p class="hint">Attachment upload is UI-only in this version; the file name is recorded but the file is not stored.</p><button class="p">Submit query</button></form></div>`;
@@ -89,11 +94,14 @@ const views = {
   tickets: { openId: null, detail: null, reply: {}, paint() { keepFocus(() => this._paint()); },
     async render() { const v = this; const { tickets } = await api('/tickets'); v.list = tickets; if (v.openId) v.detail = await api('/tickets/' + v.openId).catch(() => null); v.paint(); },
     _paint() { const v = this;
-      $('#app').innerHTML = '<h2>My Tickets</h2>' + (v.list.length ? v.list.map(t => `<div class="card"><div style="cursor:pointer" data-id="${t.id}"><h3>#${t.id} ${esc(t.subject)} ${badge(t.status, 'st-' + slug(t.status))}</h3>
+      $('#app').innerHTML = '<div class="page-heading"><div><span class="eyebrow">Your support conversations</span><h1>My Tickets</h1><p>Track requests and follow up with the BookLeaf team.</p></div></div>' + (v.list.length ? v.list.map(t => `<div class="card ticket-card"><div class="ticket-trigger" role="button" tabindex="0" aria-expanded="${v.openId === t.id}" data-id="${t.id}"><h3>#${t.id} ${esc(t.subject)} ${badge(t.status, 'st-' + slug(t.status))}</h3>
         <span class="hint">${esc(t.book_title || 'General / Account Level')} · ${when(t.created_at)}</span></div>
         ${v.openId === t.id && v.detail ? `<div class="msg author"><small>Your query</small>${esc(t.description)}${t.attachment_name ? `<br><span class="hint">📎 ${esc(t.attachment_name)}</span>` : ''}</div>${thread(v.detail.messages)}
           ${t.status === 'Closed' ? '<p class="hint">This ticket is closed.</p>' : `<textarea data-reply="${t.id}" placeholder="Add a follow-up…">${esc(v.reply[t.id] || '')}</textarea><button class="p" data-send="${t.id}">Send follow-up</button>`}` : ''}</div>`).join('') : '<p class="empty">You have not raised any queries yet.</p>');
-      document.querySelectorAll('[data-id]').forEach(el => el.onclick = async () => { v.openId = v.openId === +el.dataset.id ? null : +el.dataset.id; await v.render(); });
+      document.querySelectorAll('[data-id]').forEach(el => {
+        el.onclick = async () => { v.openId = v.openId === +el.dataset.id ? null : +el.dataset.id; await v.render(); };
+        el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); } };
+      });
       document.querySelectorAll('[data-reply]').forEach(el => el.oninput = () => v.reply[el.dataset.reply] = el.value);
       document.querySelectorAll('[data-send]').forEach(el => el.onclick = async () => { const id = el.dataset.send; if (!(v.reply[id] || '').trim()) return;
         try { await api(`/tickets/${id}/replies`, { method: 'POST', body: { body: v.reply[id] } }); v.reply[id] = ''; await v.render(); } catch (e) { toast(e.message); } }); },
@@ -109,20 +117,24 @@ const views = {
       v.paint(); },
     paint() { keepFocus(() => { this._paint(); }); },
     _paint() { const v = this, f = v.f;
-      $('#app').innerHTML = `<h2>Ticket Queue</h2><div class="card"><div class="filters">
+      $('#app').innerHTML = `<div class="page-heading"><div><span class="eyebrow">Support operations</span><h1>Ticket Queue</h1><p>Prioritize requests, keep authors informed, and move every conversation forward.</p></div></div><div class="card queue-card"><div class="filters">
         <div><label>Search</label><input id="f-q" value="${esc(f.q)}" placeholder="Subject, author or #id"></div>
         <div><label>Status</label><select id="f-status"><option value="active" ${f.status === 'active' ? 'selected' : ''}>Active (Open + In Progress)</option>${opts(STATS, f.status, 'All')}</select></div>
         <div><label>Category</label><select id="f-category">${opts(CATS, f.category, 'All')}</select></div><div><label>Priority</label><select id="f-priority">${opts(PRIS, f.priority, 'All')}</select></div>
         <div><label>Assignee</label><select id="f-assigned"><option value="">Anyone</option><option value="me" ${f.assigned === 'me' ? 'selected' : ''}>Me</option><option value="unassigned" ${f.assigned === 'unassigned' ? 'selected' : ''}>Unassigned</option></select></div>
         <div><label>From</label><input type="date" id="f-from" value="${f.from}"></div><div><label>To</label><input type="date" id="f-to" value="${f.to}"></div>
         <div><label>Sort</label><select id="f-sort"><option value="urgency" ${f.sort === 'urgency' ? 'selected' : ''}>Most urgent first</option><option value="oldest" ${f.sort === 'oldest' ? 'selected' : ''}>Oldest</option><option value="newest" ${f.sort === 'newest' ? 'selected' : ''}>Newest</option></select></div></div>
-        ${v.list.length ? `<table><tr><th>#</th><th>Priority</th><th>Subject</th><th>Author</th><th>Category</th><th>Status</th><th>Age</th><th>Assignee</th></tr>${v.list.map(t => {
+        ${v.list.length ? `<div class="queue-table-wrap"><table><thead><tr><th>#</th><th>Priority</th><th>Subject</th><th>Author</th><th>Category</th><th>Status</th><th>Age</th><th>Assignee</th></tr></thead><tbody>${v.list.map(t => {
           const open = t.status === 'Open' || t.status === 'In Progress';
-          return `<tr class="row ${v.sel === t.id ? 'sel' : ''} ${open && ageH(t.created_at) > 48 ? 'overdue' : ''}" data-id="${t.id}"><td>${t.id}</td><td>${badge(t.priority)}${t.ai_status === 'pending' ? ' <span class="hint">AI…</span>' : ''}</td><td>${esc(t.subject)}</td><td>${esc(t.author_name)}</td><td>${esc(t.category)}</td><td>${badge(t.status, 'st-' + slug(t.status))}</td><td>${ageTxt(t.created_at)}</td><td>${esc(t.assignee_name || '—')}</td></tr>`; }).join('')}</table>
+          return `<tr class="row ${v.sel === t.id ? 'sel' : ''} ${open && ageH(t.created_at) > 48 ? 'overdue' : ''}" data-id="${t.id}"><td>${t.id}</td><td>${badge(t.priority)}${t.ai_status === 'pending' ? ' <span class="hint">AI…</span>' : ''}</td><td>${esc(t.subject)}</td><td>${esc(t.author_name)}</td><td>${esc(t.category)}</td><td>${badge(t.status, 'st-' + slug(t.status))}</td><td>${ageTxt(t.created_at)}</td><td>${esc(t.assignee_name || '—')}</td></tr>`; }).join('')}</tbody></table></div>
         <p class="hint">Showing ${v.list.length} of ${v.total}. Red bar = unresolved for more than 48 hours. ${v.list.length < v.total ? '<button class="s" id="more">Load more</button>' : ''}</p>` : '<p class="empty">No tickets match these filters.</p>'}</div><div id="detail"></div>`;
       for (const k of Object.keys(f)) { const el = $('#f-' + k); if (el) el.onchange = () => { f[k] = el.value; v.limit = 50; v.load(); }; }
       $('#more') && ($('#more').onclick = () => { v.limit += 50; v.load(); });
-      document.querySelectorAll('tr.row').forEach(r => r.onclick = () => { v.sel = +r.dataset.id; v.data = null; v.note = ''; v.load(); });
+      document.querySelectorAll('tr.row').forEach(r => {
+        r.tabIndex = 0; r.setAttribute('role', 'button');
+        r.onclick = () => { v.sel = +r.dataset.id; v.data = null; v.note = ''; v.load(); };
+        r.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); r.click(); } };
+      });
       if (v.sel) v.paintDetail(); },
     paintDetail() { const v = this, d = v.data; if (!d) return; const t = d.ticket, el = $('#detail'); const dr = v.draft[t.id];
       const active = t.status === 'Open' || t.status === 'In Progress';
